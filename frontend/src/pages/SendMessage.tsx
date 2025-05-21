@@ -2,10 +2,15 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
+interface Receiver {
+  id: number;
+  username: string;
+}
+
 const SendMessage = () => {
-  const [recipient, setRecipient] = useState('')
+  const [recipientId, setRecipientId] = useState<number | ''>('')
   const [message, setMessage] = useState('')
-  const [receivers, setReceivers] = useState<string[]>([])
+  const [receivers, setReceivers] = useState<Receiver[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -26,7 +31,11 @@ const SendMessage = () => {
             Authorization: `Bearer ${token}`
           }
         })
-        setReceivers(response.data.map((user: any) => user.username))
+        // Update to save both id and username
+        setReceivers(response.data.map((user: any) => ({
+          id: user.id,
+          username: user.username
+        })))
       } catch (error) {
         console.error('Failed to fetch receivers:', error)
       }
@@ -41,13 +50,19 @@ const SendMessage = () => {
     setError('')
     setSuccess('')
 
+    if (!recipientId) {
+      setError('Please select a recipient')
+      setLoading(false)
+      return
+    }
+
     try {
       const token = localStorage.getItem('token')
       await axios.post(
         'http://localhost:8000/messages/send',
         {
-          recipient_username: recipient,
-          content: message
+          recipient_id: Number(recipientId),
+          message: message
         },
         {
           headers: {
@@ -85,15 +100,15 @@ const SendMessage = () => {
           <div>
             <label className="block text-sm font-medium text-card-foreground mb-1">Recipient</label>
             <select
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
+              value={recipientId}
+              onChange={(e) => setRecipientId(e.target.value ? Number(e.target.value) : '')}
               className="w-full p-2 border rounded text-foreground bg-background"
               required
             >
               <option value="">Select a recipient</option>
-              {receivers.map((username) => (
-                <option key={username} value={username}>
-                  {username}
+              {receivers.map((receiver) => (
+                <option key={receiver.id} value={receiver.id}>
+                  {receiver.username}
                 </option>
               ))}
             </select>

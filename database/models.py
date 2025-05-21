@@ -7,7 +7,7 @@ Models:
 - Uses SQLAlchemy ORM for database interactions
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship
 from database.database import Base
 import datetime
@@ -30,7 +30,7 @@ class Message(Base):
     __tablename__ = "messages"
     
     id = Column(Integer, primary_key=True, index=True)
-    content = Column(String, nullable=False)  # Encrypted content
+    encrypted_content = Column(Text, nullable=False)  # Encrypted message content
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     recipient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

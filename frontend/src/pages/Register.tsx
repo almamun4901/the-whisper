@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useToast } from '../components/ui/use-toast'
+import CryptoJS from 'crypto-js'
 
 const Register = () => {
   const [username, setUsername] = useState('')
@@ -24,13 +25,27 @@ const Register = () => {
         key_password: keyPassword
       })
 
-      // Store encrypted private key in localStorage
-      localStorage.setItem('encryptedPrivateKey', response.data.encrypted_private_key)
-      
-      toast({
-        title: "Registration successful",
-        description: "Please wait for admin approval",
-      })
+      if (response.data.private_key) {
+        // Encrypt the private key with the key password before storing
+        const encryptedPrivateKey = CryptoJS.AES.encrypt(
+          response.data.private_key, 
+          keyPassword
+        ).toString();
+        
+        // Store the encrypted private key in localStorage
+        localStorage.setItem(`privateKey_${username}`, encryptedPrivateKey);
+        
+        toast({
+          title: "Registration successful",
+          description: "Please wait for admin approval. Your private key has been securely stored.",
+        })
+      } else {
+        toast({
+          title: "Registration issue",
+          description: "Private key not received. Please contact support.",
+          variant: "destructive"
+        })
+      }
       
       navigate('/status')
     } catch (error: any) {

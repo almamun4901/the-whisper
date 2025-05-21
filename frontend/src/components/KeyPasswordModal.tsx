@@ -11,17 +11,28 @@ interface KeyPasswordModalProps {
 const KeyPasswordModal: React.FC<KeyPasswordModalProps> = ({ show, onHide, onSuccess }) => {
     const [keyPassword, setKeyPassword] = useState('');
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setLoading(true);
 
         try {
-            await keyManager.decryptKey(keyPassword);
-            onSuccess();
-            onHide();
+            // Use the new client-side decryption
+            const success = keyManager.decryptKey(keyPassword);
+            
+            if (success) {
+                onSuccess();
+                onHide();
+            } else {
+                setError('Invalid password. Please try again.');
+            }
         } catch (err) {
-            setError('Invalid key password');
+            setError('Error decrypting key. Please try again.');
+            console.error('Key decryption error:', err);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -31,6 +42,10 @@ const KeyPasswordModal: React.FC<KeyPasswordModalProps> = ({ show, onHide, onSuc
                 <Modal.Title>Enter Key Password</Modal.Title>
             </Modal.Header>
             <Modal.Body>
+                <p className="text-muted mb-3">
+                    Your private key is encrypted with a password for security.
+                    Enter your password to decrypt it and read your messages.
+                </p>
                 <Form onSubmit={handleSubmit}>
                     <Form.Group className="mb-3">
                         <Form.Label>Key Password</Form.Label>
@@ -39,12 +54,18 @@ const KeyPasswordModal: React.FC<KeyPasswordModalProps> = ({ show, onHide, onSuc
                             value={keyPassword}
                             onChange={(e) => setKeyPassword(e.target.value)}
                             placeholder="Enter your key password"
+                            disabled={loading}
                             required
                         />
                     </Form.Group>
                     {error && <Alert variant="danger">{error}</Alert>}
-                    <Button variant="primary" type="submit" className="w-100">
-                        Decrypt Key
+                    <Button 
+                        variant="primary" 
+                        type="submit" 
+                        className="w-100" 
+                        disabled={loading}
+                    >
+                        {loading ? 'Decrypting...' : 'Decrypt Key'}
                     </Button>
                 </Form>
             </Modal.Body>

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import CryptoJS from 'crypto-js'
 
 interface Message {
   id: number
-  sender_username: string
-  content: string
+  sender_name: string
+  encrypted_content: string
+  plain_content?: string
   created_at: string
   read: boolean
 }
@@ -13,10 +15,13 @@ interface Message {
 const Inbox = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
+  const [decryptLoading, setDecryptLoading] = useState(false)
   const [error, setError] = useState('')
   const [showKeyModal, setShowKeyModal] = useState(false)
   const [decryptedMessages, setDecryptedMessages] = useState<{[key: number]: string}>({})
   const [keyPassword, setKeyPassword] = useState('')
+  const [currentMessageId, setCurrentMessageId] = useState<number | null>(null)
+  const [currentEncryptedContent, setCurrentEncryptedContent] = useState('')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -28,16 +33,29 @@ const Inbox = () => {
 
     const fetchMessages = async () => {
       try {
+        console.log('Fetching messages with token:', token?.substring(0, 5) + '...')
+        
         const response = await axios.get('http://localhost:8000/messages/inbox', {
           headers: {
             Authorization: `Bearer ${token}`
           }
         })
+        
+        console.log('Raw response:', response)
         console.log('Fetched messages:', response.data)
-        setMessages(response.data)
-      } catch (error) {
+        
+        // Check if response.data is an array
+        if (!Array.isArray(response.data)) {
+          console.error('Response is not an array:', response.data)
+          setError('Messages data has unexpected format')
+          setMessages([])
+        } else {
+          setMessages(response.data || [])
+        }
+      } catch (error: any) {
         console.error('Failed to fetch messages:', error)
-        setError('Failed to load messages')
+        console.error('Error details:', error.response?.data)
+        setError(`Failed to load messages: ${error.message}. ${error.response?.data?.detail || ''}`)
       } finally {
         setLoading(false)
       }
@@ -48,12 +66,8 @@ const Inbox = () => {
 
   const handleDecrypt = async (messageId: number, encryptedContent: string) => {
     console.log('Starting decryption for message:', messageId)
-    const encryptedKey = localStorage.getItem('encryptedPrivateKey')
-    if (!encryptedKey) {
-      setError('No encrypted private key found. Please register again.')
-      return
-    }
-
+    setCurrentMessageId(messageId)
+    setCurrentEncryptedContent(encryptedContent)
     setShowKeyModal(true)
   }
 
@@ -63,63 +77,90 @@ const Inbox = () => {
       return
     }
 
+    if (!currentMessageId || !currentEncryptedContent) {
+      setError('No message selected for decryption')
+      return
+    }
+
+    setDecryptLoading(true)
     try {
-      console.log('Decrypting private key...')
-      // First decrypt the private key
-      const keyResponse = await axios.post('http://localhost:8000/decrypt-key', {
-        encrypted_key: localStorage.getItem('encryptedPrivateKey'),
-        key_password: keyPassword
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      })
-
-      const decryptedKey = keyResponse.data.decrypted_key
-      console.log('Private key decrypted successfully')
-
-      // Now decrypt all messages
-      const newDecryptedMessages: {[key: number]: string} = {}
-      for (const message of messages) {
-        try {
-          console.log('Decrypting message:', message.id)
-          const response = await axios.post(
-            'http://localhost:8000/messages/decrypt',
-            {
-              encrypted_content: message.content,
-              private_key: decryptedKey
-            },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-              }
-            }
-          )
-          
-          console.log('Message decrypted:', response.data)
-          newDecryptedMessages[message.id] = response.data.decrypted_content
-
-          // Mark as read
-          await axios.get(`http://localhost:8000/messages/${message.id}/mark-read`, {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem('token')}`
-            }
-          })
-        } catch (error: any) {
-          console.error('Failed to decrypt message:', error)
-          newDecryptedMessages[message.id] = error.response?.data?.detail || 'Failed to decrypt message'
-        }
+      // Get username from localStorage
+      const username = localStorage.getItem('username')
+      if (!username) {
+        setError('User information not found, please login again')
+        navigate('/login')
+        return
       }
 
-      console.log('All messages decrypted:', newDecryptedMessages)
-      setDecryptedMessages(newDecryptedMessages)
+      // Get the encrypted private key from localStorage
+      const encryptedPrivateKey = localStorage.getItem(`privateKey_${username}`)
+      if (!encryptedPrivateKey) {
+        setError('Private key not found. You may need to register again.')
+        return
+      }
+
+      // Decrypt the private key using the provided key password
+      let decryptedPrivateKey
+      try {
+        decryptedPrivateKey = CryptoJS.AES.decrypt(
+          encryptedPrivateKey,
+          keyPassword
+        ).toString(CryptoJS.enc.Utf8)
+        
+        if (!decryptedPrivateKey) {
+          throw new Error('Incorrect key password')
+        }
+      } catch (e) {
+        setError('Failed to decrypt private key. Incorrect key password.')
+        return
+      }
+
+      // Now pass both the encrypted content and the decrypted private key to the backend
+      console.log('Decrypting message with private key...')
+      const response = await axios.post(
+        'http://localhost:8000/messages/decrypt',
+        {
+          encrypted_message: currentEncryptedContent,
+          key_password: keyPassword,
+          private_key: decryptedPrivateKey  // Send the decrypted private key
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      )
+      
+      console.log('Message decrypted:', response.data)
+      
+      // Update the decrypted messages state
+      setDecryptedMessages(prev => ({
+        ...prev,
+        [currentMessageId]: response.data.decrypted_message
+      }))
+
+      // Mark as read
+      try {
+        await axios.get(`http://localhost:8000/messages/${currentMessageId}/mark-read`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        })
+      } catch (error) {
+        console.error('Failed to mark message as read:', error)
+      }
+
+      // Close the modal and reset state
       setShowKeyModal(false)
       setKeyPassword('')
+      setCurrentMessageId(null)
+      setCurrentEncryptedContent('')
     } catch (error: any) {
-      console.error('Failed to decrypt key:', error)
-      setError(error.response?.data?.detail || 'Failed to decrypt key. Please check your password.')
+      console.error('Failed to decrypt message:', error)
+      setError(error.response?.data?.detail || 'Failed to decrypt message. Please check your key password.')
+    } finally {
+      setDecryptLoading(false)
     }
   }
 
@@ -139,6 +180,12 @@ const Inbox = () => {
         {error && (
           <div className="bg-destructive/10 text-white p-3 rounded-md mb-4">
             {error}
+            <button 
+              className="ml-2 text-sm underline" 
+              onClick={() => setError('')}
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
@@ -156,7 +203,7 @@ const Inbox = () => {
                 className={`bg-card p-4 rounded-lg shadow ${!message.read ? 'border-l-4 border-primary' : ''}`}
               >
                 <div className="flex justify-between">
-                  <h3 className="font-medium text-white">From: {message.sender_username}</h3>
+                  <h3 className="font-medium text-white">From: {message.sender_name}</h3>
                   <span className="text-xs text-white/70">
                     {new Date(message.created_at).toLocaleString()}
                   </span>
@@ -170,7 +217,7 @@ const Inbox = () => {
                   <div className="mt-2">
                     <p className="text-white/70 italic">Encrypted message</p>
                     <button
-                      onClick={() => handleDecrypt(message.id, message.content)}
+                      onClick={() => handleDecrypt(message.id, message.encrypted_content)}
                       className="mt-2 px-3 py-1 bg-primary text-white text-sm rounded hover:bg-primary/90"
                     >
                       Decrypt Message
@@ -212,16 +259,20 @@ const Inbox = () => {
                   onClick={() => {
                     setShowKeyModal(false)
                     setKeyPassword('')
+                    setCurrentMessageId(null)
+                    setCurrentEncryptedContent('')
                   }}
-                  className="px-4 py-2 bg-muted text-white rounded hover:bg-muted/80"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleKeyDecryption}
-                  className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90"
-                >
-                  Decrypt
+                                className="px-4 py-2 bg-muted text-white rounded hover:bg-muted/80"
+              disabled={decryptLoading}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleKeyDecryption}
+              className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90"
+              disabled={decryptLoading}
+            >
+              {decryptLoading ? 'Decrypting...' : 'Decrypt'}
                 </button>
               </div>
             </div>

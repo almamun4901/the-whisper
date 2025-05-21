@@ -10,13 +10,15 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization
 import base64
 import os
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
+import json
 
 class KeyManager:
     def __init__(self):
         self.key_size = 2048  # RSA key size in bits
         self._session_key: Optional[bytes] = None
         self._session_private_key: Optional[bytes] = None
+        self.user_keys_cache: Dict[str, object] = {}  # Cache for user keys
 
     def generate_key_pair(self):
         """Generate RSA key pair"""
@@ -104,16 +106,67 @@ class KeyManager:
             print(f"Error formatting public key: {str(e)}")
             raise Exception(f"Failed to format public key: {str(e)}")
 
-    def store_private_key(self, encrypted_key: str):
-        """Store encrypted private key in browser storage"""
-        # This will be called from the frontend
-        pass
-
-    def load_private_key(self) -> Optional[str]:
-        """Load encrypted private key from browser storage"""
-        # This will be called from the frontend
-        pass
-
+    def generate_and_encrypt_key_pair(self, password: str) -> dict:
+        """Generate key pair and encrypt the private key with password"""
+        public_key, private_key = self.generate_key_pair()
+        encrypted_private_key = self.encrypt_private_key(private_key, password)
+        public_key_pem = self.get_public_key_pem(public_key)
+        
+        return {
+            "public_key": public_key_pem,
+            "encrypted_private_key": encrypted_private_key
+        }
+    
+    def store_user_key(self, user_id: str, encrypted_private_key: str, public_key: str) -> bool:
+        """Store encrypted private key and public key for a user"""
+        try:
+            key_data = {
+                "encrypted_private_key": encrypted_private_key,
+                "public_key": public_key
+            }
+            
+            # Store key data in a file named after the user ID
+            key_file_path = f"user_keys/{user_id}.json"
+            os.makedirs(os.path.dirname(key_file_path), exist_ok=True)
+            
+            with open(key_file_path, 'w') as f:
+                json.dump(key_data, f)
+                
+            return True
+        except Exception as e:
+            print(f"Error storing user key: {str(e)}")
+            return False
+    
+    def get_user_key(self, user_id: str) -> Optional[dict]:
+        """Get encrypted private key and public key for a user"""
+        try:
+            # First check if key is in cache
+            if user_id in self.user_keys_cache:
+                return self.user_keys_cache[user_id]
+            
+            # If not in cache, read from file
+            key_file_path = f"user_keys/{user_id}.json"
+            if not os.path.exists(key_file_path):
+                return None
+                
+            with open(key_file_path, 'r') as f:
+                key_data = json.load(f)
+                
+            # Store in cache for future use
+            self.user_keys_cache[user_id] = key_data
+            return key_data
+        except Exception as e:
+            print(f"Error getting user key: {str(e)}")
+            return None
+    
+    def verify_key_password(self, encrypted_private_key: str, password: str) -> bool:
+        """Verify if the password can decrypt the private key"""
+        try:
+            self.decrypt_private_key(encrypted_private_key, password)
+            return True
+        except Exception:
+            return False
+    
     def set_session_key(self, private_key: bytes):
         """Store private key in memory for session duration"""
         self._session_private_key = private_key

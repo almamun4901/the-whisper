@@ -264,4 +264,15 @@ async def get_receivers(db: Session = Depends(get_db), current_user: User = Depe
             "username": user.username
         }
         for user in receivers
-    ] 
+    ]
+
+@app.get("/debug/token")
+async def debug_token(current_user: User = Depends(get_current_user)):
+    """Debug endpoint to check token and user info"""
+    return {
+        "user_id": current_user.id,
+        "username": current_user.username,
+        "role": current_user.role,
+        "is_approved": current_user.is_approved,
+        "status": current_user.status
+    } 

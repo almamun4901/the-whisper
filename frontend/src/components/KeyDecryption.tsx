@@ -1,98 +1,144 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useToast } from './ui/use-toast'
 
 interface KeyDecryptionProps {
-  onKeyDecrypted: (decryptedKey: string) => void
-  onCancel: () => void
+  onDecrypt: (decryptedMessage: string) => void
+  encryptedMessage: string
 }
 
-const KeyDecryption = ({ onKeyDecrypted, onCancel }: KeyDecryptionProps) => {
+const KeyDecryption: React.FC<KeyDecryptionProps> = ({ onDecrypt, encryptedMessage }) => {
   const [keyPassword, setKeyPassword] = useState('')
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
 
   const handleDecrypt = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError('')
     setLoading(true)
 
     try {
-      const encryptedKey = localStorage.getItem('encryptedPrivateKey')
-      if (!encryptedKey) {
-        throw new Error('No encrypted key found')
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setError('Authentication required. Please log in.')
+        setLoading(false)
+        return
       }
 
-      // Call backend to decrypt the key
-      const response = await fetch('http://localhost:8000/decrypt-key', {
+      const response = await fetch('http://localhost:8000/messages/decrypt', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          encrypted_key: encryptedKey,
-          password: keyPassword
+          encrypted_message: encryptedMessage,
+          key_password: keyPassword
         })
       })
 
+      const data = await response.json()
+      
       if (!response.ok) {
-        throw new Error('Failed to decrypt key')
+        setError(data.detail || 'Failed to decrypt message')
+        setLoading(false)
+        return
       }
 
-      const { decrypted_key } = await response.json()
-      onKeyDecrypted(decrypted_key)
+      // Pass the decrypted message to the parent component
+      onDecrypt(data.decrypted_message)
+      
+      // Clear the password field
+      setKeyPassword('')
       
       toast({
-        title: "Key decrypted successfully",
-        description: "You can now read your messages",
+        title: "Message decrypted successfully",
+        description: "You can now read your message",
       })
-    } catch (error: any) {
-      toast({
-        title: "Decryption failed",
-        description: error.message || "Invalid key password",
-        variant: "destructive"
-      })
+    } catch (err) {
+      setError('Error decrypting message. Please try again.')
+      console.error('Decryption error:', err)
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center">
-      <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-xl font-semibold mb-4">Enter Key Password</h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Enter your key password to decrypt your private key and read messages
-        </p>
-        <form onSubmit={handleDecrypt} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Key Password</label>
-            <input
-              type="password"
-              value={keyPassword}
-              onChange={(e) => setKeyPassword(e.target.value)}
-              className="w-full p-2 border rounded bg-background"
-              placeholder="Enter your key password"
-              required
-            />
-          </div>
-          <div className="flex space-x-2">
-            <button
-              type="submit"
-              className="flex-1 py-2 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition"
-              disabled={loading}
-            >
-              {loading ? 'Decrypting...' : 'Decrypt Key'}
-            </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              className="flex-1 py-2 rounded bg-muted text-muted-foreground hover:bg-muted/90 transition"
-              disabled={loading}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
+    <div className="key-decryption">
+      <h3>Enter Key Password</h3>
+      <p>Your message is encrypted. Enter your key password to decrypt it.</p>
+      
+      <form onSubmit={handleDecrypt}>
+        <div className="form-group">
+          <label htmlFor="keyPassword">Key Password:</label>
+          <input
+            type="password"
+            id="keyPassword"
+            value={keyPassword}
+            onChange={(e) => setKeyPassword(e.target.value)}
+            placeholder="Enter your key password"
+            disabled={loading}
+            required
+          />
+        </div>
+        
+        {error && <div className="error-message">{error}</div>}
+        
+        <button 
+          type="submit" 
+          disabled={loading || !keyPassword}
+        >
+          {loading ? 'Decrypting...' : 'Decrypt Message'}
+        </button>
+      </form>
+      
+      <style jsx>{`
+        .key-decryption {
+          margin: 20px 0;
+          padding: 20px;
+          border: 1px solid #ccc;
+          border-radius: 5px;
+          background-color: #f9f9f9;
+        }
+        
+        .form-group {
+          margin-bottom: 15px;
+        }
+        
+        label {
+          display: block;
+          margin-bottom: 5px;
+          font-weight: bold;
+        }
+        
+        input {
+          width: 100%;
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          font-size: 16px;
+        }
+        
+        button {
+          padding: 10px 15px;
+          background-color: #4CAF50;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 16px;
+        }
+        
+        button:disabled {
+          background-color: #cccccc;
+          cursor: not-allowed;
+        }
+        
+        .error-message {
+          color: #f44336;
+          margin-bottom: 15px;
+        }
+      `}</style>
     </div>
   )
 }
