@@ -1,40 +1,53 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { useToast } from '../components/ui/use-toast'
 
 const Register = () => {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [keyPassword, setKeyPassword] = useState('')
   const [role, setRole] = useState('sender')
-  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoading(true)
+
     try {
       const response = await axios.post('http://localhost:8000/register', {
         username,
         password,
-        role
+        role,
+        key_password: keyPassword
       })
-      setMessage('Registration successful! Waiting for admin approval.')
-      setTimeout(() => {
-        navigate('/status')
-      }, 2000)
+
+      // Store encrypted private key in localStorage
+      localStorage.setItem('encryptedPrivateKey', response.data.encrypted_private_key)
+      
+      toast({
+        title: "Registration successful",
+        description: "Please wait for admin approval",
+      })
+      
+      navigate('/status')
     } catch (error: any) {
-      setMessage(error.response?.data?.detail || 'Registration failed')
+      toast({
+        title: "Registration failed",
+        description: error.response?.data?.detail || "An error occurred",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-muted/20">
       <div className="w-full max-w-md p-8 space-y-6 bg-card rounded-lg shadow-lg">
-        <h1 className="text-2xl font-bold text-center text-card-foreground">Register Account</h1>
-        {message && (
-          <div className="bg-primary/10 text-primary p-3 rounded-md text-center">
-            {message}
-          </div>
-        )}
+        <h1 className="text-2xl font-bold text-center text-card-foreground">Register</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-card-foreground mb-1">Username</label>
@@ -43,7 +56,7 @@ const Register = () => {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full p-2 border rounded text-foreground bg-background"
-              placeholder="Choose a username"
+              placeholder="Enter username"
               required
             />
           </div>
@@ -54,9 +67,23 @@ const Register = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full p-2 border rounded text-foreground bg-background"
-              placeholder="Choose a password"
+              placeholder="Enter password"
               required
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-card-foreground mb-1">Key Password</label>
+            <input
+              type="password"
+              value={keyPassword}
+              onChange={(e) => setKeyPassword(e.target.value)}
+              className="w-full p-2 border rounded text-foreground bg-background"
+              placeholder="Enter password for key encryption"
+              required
+            />
+            <p className="mt-1 text-sm text-muted-foreground">
+              This password will be used to encrypt your private key. Keep it safe!
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-card-foreground mb-1">Role</label>
@@ -70,18 +97,12 @@ const Register = () => {
               <option value="receiver">Receiver</option>
             </select>
           </div>
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className="w-full py-2 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition"
+            disabled={loading}
           >
-            Register
-          </button>
-          <button 
-            type="button"
-            onClick={() => navigate('/')}
-            className="w-full py-2 rounded bg-muted text-muted-foreground hover:bg-muted/90 transition"
-          >
-            Back to Home
+            {loading ? 'Registering...' : 'Register'}
           </button>
         </form>
       </div>

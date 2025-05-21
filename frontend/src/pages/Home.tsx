@@ -18,6 +18,12 @@ const Home = () => {
             Admin Login
           </button>
           <button
+            onClick={() => navigate('/login')}
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded transition duration-200"
+          >
+            User Login
+          </button>
+          <button
             onClick={() => navigate('/register')}
             className="w-full bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded transition duration-200"
           >

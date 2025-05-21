@@ -21,24 +21,28 @@ from pydantic import BaseModel, validator
 from sqlalchemy.orm import Session
 from datetime import timedelta
 import hashlib
-from database.database import SessionLocal, engine, Base
+from database.database import SessionLocal, engine, Base, get_db
 from database.models import User
 from encryption.key_utils import generate_rsa_key_pair
-from auth.jwt_auth import create_access_token, SECRET_KEY, ALGORITHM
+from auth.jwt_auth import create_access_token, SECRET_KEY, ALGORITHM, authenticate_user, get_current_user
 from jose import jwt, JWTError
 import re
 from typing import List, Optional
+from backend.routes import message_routes
 
 app = FastAPI(title="User Registration API")
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include message routes
+app.include_router(message_routes.router)
 
 # Admin credentials
 ADMIN_USERNAME = "admin"
@@ -46,13 +50,6 @@ ADMIN_PASSWORD = "admin123"
 
 # Database setup
 Base.metadata.create_all(bind=engine)
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # Hash password using SHA-256
 def hash_password(password: str) -> str:
@@ -92,6 +89,12 @@ class UserCreate(BaseModel):
     password: str
     role: str
 
+    @validator('username')
+    def username_must_contain_number(cls, v):
+        if not any(char.isdigit() for char in v):
+            raise ValueError('Username must contain at least one number')
+        return v
+
     @validator('role')
     def validate_role(cls, v):
         if v not in ['sender', 'receiver']:
@@ -99,6 +102,10 @@ class UserCreate(BaseModel):
         return v
 
 class AdminLogin(BaseModel):
+    username: str
+    password: str
+
+class UserLogin(BaseModel):
     username: str
     password: str
 
@@ -215,4 +222,46 @@ def check_user_status(username: str, db: Session = Depends(get_db)):
         "username": user.username,
         "role": user.role,
         "status": user.status
-    } 
+    }
+
+@app.post("/login", response_model=Token)
+def login_user(user_credentials: UserLogin, db: Session = Depends(get_db)):
+    user = authenticate_user(db, user_credentials.username, user_credentials.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials or account not approved",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=60 * 24)  # 24 hours
+    access_token = create_access_token(
+        data={"sub": user.username, "role": user.role},
+        expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/users/receivers")
+async def get_receivers(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Check if user is approved and is a sender
+    if not current_user.is_approved or current_user.role != "sender":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You must be an approved sender to view receivers"
+        )
+    
+    # Get all approved receivers
+    receivers = db.query(User).filter(
+        User.role == "receiver",
+        User.is_approved == True,
+        User.status == "approved"
+    ).all()
+    
+    return [
+        {
+            "id": user.id,
+            "username": user.username
+        }
+        for user in receivers
+    ] 
