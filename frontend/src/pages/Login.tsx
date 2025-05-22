@@ -24,11 +24,16 @@ const Login = () => {
       
       // Fetch user data to determine role
       const userResponse = await axios.get(`http://localhost:8000/status?username=${username}`)
-      localStorage.setItem('userRole', userResponse.data.role)
+      const userRole = userResponse.data.role
+      localStorage.setItem('userRole', userRole)
       localStorage.setItem('username', username)
       
       // Redirect based on role
+      if (userRole === 'moderator') {
+        navigate('/moderator/dashboard')
+      } else {
       navigate('/dashboard')
+      }
     } catch (error: any) {
       setError(error.response?.data?.detail || 'Login failed')
     } finally {

@@ -18,7 +18,10 @@ const Register = () => {
     setLoading(true)
 
     try {
-      const response = await axios.post('http://localhost:8000/register', {
+      // Use different endpoint for moderator registration
+      const endpoint = role === 'moderator' ? '/register/moderator' : '/register'
+      
+      const response = await axios.post(`http://localhost:8000${endpoint}`, {
         username,
         password,
         role,
@@ -110,6 +113,7 @@ const Register = () => {
             >
               <option value="sender">Sender</option>
               <option value="receiver">Receiver</option>
+              <option value="moderator">Moderator</option>
             </select>
           </div>
           <button

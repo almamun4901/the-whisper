@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import CryptoJS from 'crypto-js'
+import { useToast } from '../components/ui/use-toast'
 
 interface Message {
   id: number
@@ -10,6 +11,7 @@ interface Message {
   plain_content?: string
   created_at: string
   read: boolean
+  is_flagged: boolean
 }
 
 const Inbox = () => {
@@ -18,11 +20,15 @@ const Inbox = () => {
   const [decryptLoading, setDecryptLoading] = useState(false)
   const [error, setError] = useState('')
   const [showKeyModal, setShowKeyModal] = useState(false)
+  const [showFlagModal, setShowFlagModal] = useState(false)
+  const [flagReason, setFlagReason] = useState('')
+  const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null)
   const [decryptedMessages, setDecryptedMessages] = useState<{[key: number]: string}>({})
   const [keyPassword, setKeyPassword] = useState('')
   const [currentMessageId, setCurrentMessageId] = useState<number | null>(null)
   const [currentEncryptedContent, setCurrentEncryptedContent] = useState('')
   const navigate = useNavigate()
+  const { toast } = useToast()
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -164,6 +170,57 @@ const Inbox = () => {
     }
   }
 
+  const handleFlagMessage = async (messageId: number) => {
+    setSelectedMessageId(messageId)
+    setShowFlagModal(true)
+  }
+
+  const submitFlag = async () => {
+    if (!selectedMessageId || !flagReason.trim()) {
+      toast({
+        title: "Error",
+        description: "Please provide a reason for flagging",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      await axios.post(
+        `http://localhost:8000/messages/${selectedMessageId}/flag`,
+        { reason: flagReason },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      )
+
+      // Update the message in the local state
+      setMessages(messages.map(msg => 
+        msg.id === selectedMessageId 
+          ? { ...msg, is_flagged: true }
+          : msg
+      ))
+
+      toast({
+        title: "Success",
+        description: "Message flagged successfully"
+      })
+
+      // Reset and close modal
+      setFlagReason('')
+      setShowFlagModal(false)
+      setSelectedMessageId(null)
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.detail || "Failed to flag message",
+        variant: "destructive"
+      })
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-4xl mx-auto">
@@ -225,11 +282,23 @@ const Inbox = () => {
                   </div>
                 )}
                 
+                <div className="mt-2 flex justify-between items-center">
                 {!message.read && !decryptedMessages[message.id] && (
-                  <div className="mt-2 text-xs text-primary font-medium">
+                    <div className="text-xs text-primary font-medium">
                     Unread
                   </div>
                 )}
+                  {message.is_flagged ? (
+                    <span className="text-xs text-red-500 font-medium">Flagged</span>
+                  ) : (
+                    <button
+                      onClick={() => handleFlagMessage(message.id)}
+                      className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                    >
+                      Flag Message
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -273,6 +342,43 @@ const Inbox = () => {
               disabled={decryptLoading}
             >
               {decryptLoading ? 'Decrypting...' : 'Decrypt'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Flag Modal */}
+        {showFlagModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+            <div className="bg-card p-6 rounded-lg shadow-lg max-w-md w-full">
+              <h2 className="text-xl font-bold mb-4 text-white">Flag Message</h2>
+              <p className="text-sm text-white/70 mb-4">
+                Please provide a reason for flagging this message
+              </p>
+              <textarea
+                value={flagReason}
+                onChange={(e) => setFlagReason(e.target.value)}
+                className="w-full p-2 border rounded mb-4 text-white bg-muted/30"
+                placeholder="Enter reason for flagging..."
+                rows={4}
+              />
+              <div className="flex justify-end space-x-2">
+                <button
+                  onClick={() => {
+                    setShowFlagModal(false)
+                    setFlagReason('')
+                    setSelectedMessageId(null)
+                  }}
+                  className="px-4 py-2 bg-muted text-white rounded hover:bg-muted/80"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitFlag}
+                  className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                >
+                  Flag Message
                 </button>
               </div>
             </div>

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { useToast } from '../components/ui/use-toast'
+import CryptoJS from 'crypto-js'
 
 interface Receiver {
   id: number;
@@ -15,6 +17,7 @@ const SendMessage = () => {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const navigate = useNavigate()
+  const { toast } = useToast()
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -58,11 +61,31 @@ const SendMessage = () => {
 
     try {
       const token = localStorage.getItem('token')
+      // Get the current round ID from the backend
+      const roundResponse = await axios.get('http://localhost:8000/messages/current-round', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
+      const roundId = roundResponse.data.round_id
+
+      // Get the user ID from the token
+      const userResponse = await axios.get('http://localhost:8000/users/me', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
+      const userId = userResponse.data.id
+
+      // Generate token hash using SHA-256
+      const token_hash = CryptoJS.SHA256(`${userId}${roundId}`).toString()
+      
       await axios.post(
         'http://localhost:8000/messages/send',
         {
           recipient_id: Number(recipientId),
-          message: message
+          encrypted_content: message,
+          token_hash: token_hash
         },
         {
           headers: {

@@ -1,7 +1,7 @@
 """
 
 FastAPI backend for user registration system:
-1. User registration with role assignment (sender/receiver)
+1. User registration with role assignment (sender/receiver/moderator)
 2. Admin approval for new user registrations
 3. User status checking
 4. Password hashing for security
@@ -28,7 +28,7 @@ from auth.jwt_auth import create_access_token, SECRET_KEY, ALGORITHM, authentica
 from jose import jwt, JWTError
 import re
 from typing import List, Optional
-from backend.routes import message_routes
+from backend.routes import message_routes, moderator_routes, user_routes
 
 app = FastAPI(title="User Registration API")
 
@@ -41,8 +41,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include message routes
+# Include routes
 app.include_router(message_routes.router)
+app.include_router(moderator_routes.router)
+app.include_router(user_routes.router)
 
 # Admin credentials
 ADMIN_USERNAME = "admin"
@@ -87,7 +89,8 @@ async def verify_admin_token(authorization: str = Header(None)):
 class UserCreate(BaseModel):
     username: str
     password: str
-    role: str
+    role: str = "sender"  # Default role is sender
+    key_password: Optional[str] = None
 
     @validator('username')
     def username_must_contain_number(cls, v):
@@ -97,8 +100,19 @@ class UserCreate(BaseModel):
 
     @validator('role')
     def validate_role(cls, v):
-        if v not in ['sender', 'receiver']:
-            raise ValueError('Role must be either "sender" or "receiver"')
+        if v not in ['sender', 'receiver', 'moderator']:
+            raise ValueError('Role must be either "sender", "receiver", or "moderator"')
+        return v
+
+class ModeratorCreate(BaseModel):
+    username: str
+    password: str
+    key_password: str
+
+    @validator('username')
+    def username_must_contain_number(cls, v):
+        if not any(char.isdigit() for char in v):
+            raise ValueError('Username must contain at least one number')
         return v
 
 class AdminLogin(BaseModel):
@@ -133,6 +147,40 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
         role=user.role,
         is_approved=False,
         status="pending"  # Add status field
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    return {
+        "id": db_user.id,
+        "username": db_user.username,
+        "role": db_user.role,
+        "status": "pending",
+        "public_key": db_user.public_key,
+        "private_key": private_key
+    }
+
+@app.post("/register/moderator")
+def register_moderator(moderator: ModeratorCreate, db: Session = Depends(get_db)):
+    # Check if username exists
+    if db.query(User).filter(User.username == moderator.username).first():
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    # Hash password using SHA-256
+    hashed_password = hash_password(moderator.password)
+    
+    # Generate keys
+    public_key, private_key = generate_rsa_key_pair()
+    
+    # Create moderator with pending approval
+    db_user = User(
+        username=moderator.username,
+        password_hash=hashed_password,
+        public_key=public_key,
+        role="moderator",
+        is_approved=False,
+        status="pending"
     )
     db.add(db_user)
     db.commit()

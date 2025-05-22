@@ -9,6 +9,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import SendMessage from './pages/SendMessage'
 import Inbox from './pages/Inbox'
+import ModeratorDashboard from './pages/ModeratorDashboard'
 import { Toaster } from './components/ui/toaster'
 import './App.css'
 
@@ -25,6 +26,7 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/send-message" element={<SendMessage />} />
         <Route path="/inbox" element={<Inbox />} />
+        <Route path="/moderator/dashboard" element={<ModeratorDashboard />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Toaster />

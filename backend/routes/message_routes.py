@@ -14,16 +14,18 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from database.database import get_db
-from database.models import User, Message
+from database.models import User, Message, TokenMapping, AuditLog
 from encryption.message_crypto import encrypt_message, decrypt_message
 from auth.jwt_auth import get_current_user
 from encryption.key_management import KeyManager
+import datetime
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
 class MessageCreate(BaseModel):
     recipient_id: int
-    message: str
+    encrypted_content: str
+    token_hash: str  # Add token hash field
 
 class MessageResponse(BaseModel):
     id: int
@@ -37,68 +39,61 @@ class DecryptRequest(BaseModel):
     key_password: str
     private_key: Optional[str] = None  # Add optional private key field
 
-@router.post("/send", status_code=status.HTTP_201_CREATED)
+class FlagMessageRequest(BaseModel):
+    reason: str
+
+@router.post("/send")
 async def send_message(
     message: MessageCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Check if sender is approved
-    if not current_user.is_approved or current_user.status != "approved":
+    # Verify user is approved and is a sender
+    if not current_user.is_approved or current_user.role != "sender":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account is not approved to send messages"
+            detail="Not authorized to send messages"
         )
     
-    # Check if sender is a sender role
-    if current_user.role != "sender":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only users with 'sender' role can send messages"
-        )
-    
-    # Find recipient
+    # Get recipient
     recipient = db.query(User).filter(User.id == message.recipient_id).first()
     if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    
+    # Verify recipient is approved
+    if not recipient.is_approved:
+        raise HTTPException(status_code=400, detail="Recipient is not approved")
+    
+    # Check if the token is currently banned
+    current_time = datetime.datetime.utcnow()
+    active_ban = db.query(AuditLog).filter(
+        AuditLog.token_hash == message.token_hash,
+        AuditLog.action_type == "ban",
+        AuditLog.created_at >= current_time - datetime.timedelta(minutes=5)  # Check last 5 minutes
+    ).first()
+    
+    if active_ban:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipient not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This token has been banned for 5 minutes and cannot be used to send messages"
         )
     
-    # Check if recipient is approved
-    if not recipient.is_approved or recipient.status != "approved":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Recipient account is not approved"
-        )
-    
-    # Check if recipient is a receiver
-    if recipient.role != "receiver":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Can only send messages to users with 'receiver' role"
-        )
-    
-    # Encrypt the message using recipient's public key
-    try:
-        encrypted_content = encrypt_message(message.message, recipient.public_key)
-    except Exception as e:
-        # If encryption fails, just store as plaintext
-        print(f"Encryption failed: {str(e)}, storing as plaintext")
-        encrypted_content = message.message
-    
-    # Create and save the message
+    # Create message
     db_message = Message(
-        encrypted_content=encrypted_content,
+        encrypted_content=message.encrypted_content,
         sender_id=current_user.id,
-        recipient_id=recipient.id
+        recipient_id=message.recipient_id,
+        token_hash=message.token_hash  # Add token hash to message
     )
     
     db.add(db_message)
     db.commit()
     db.refresh(db_message)
     
-    return {"id": db_message.id, "status": "sent"}
+    return {
+        "id": db_message.id,
+        "created_at": db_message.created_at
+    }
 
 @router.get("/inbox", response_model=List[MessageResponse])
 async def get_inbox(
@@ -199,4 +194,74 @@ async def decrypt_message_content(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to process message: {str(e)}"
-        ) 
+        )
+
+@router.post("/{message_id}/flag")
+async def flag_message(
+    message_id: int,
+    flag_request: FlagMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Verify user is approved and is a receiver
+    if not current_user.is_approved or current_user.role != "receiver":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to flag messages"
+        )
+    
+    # Get message
+    message = db.query(Message).filter(Message.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Verify message belongs to current user
+    if message.recipient_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to flag this message")
+    
+    # Flag the message
+    message.is_flagged = True
+    message.flag_reason = flag_request.reason
+    
+    db.commit()
+    
+    return {"status": "message flagged successfully"}
+
+@router.get("/current-round")
+async def get_current_round(
+    current_user: User = Depends(get_current_user)
+):
+    """Get the current round ID based on the current time"""
+    # Each round lasts 24 hours
+    # Round ID is calculated as the number of days since epoch
+    current_time = datetime.datetime.utcnow()
+    epoch = datetime.datetime(1970, 1, 1)
+    days_since_epoch = (current_time - epoch).days
+    return {"round_id": days_since_epoch}
+
+@router.get("/flagged")
+async def get_flagged_messages(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all flagged messages (moderator only)"""
+    if current_user.role != "moderator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only moderators can view flagged messages"
+        )
+    
+    flagged_messages = db.query(Message).filter(
+        Message.is_flagged == True
+    ).order_by(Message.created_at.desc()).all()  # Order by newest first
+    
+    return [
+        {
+            "id": msg.id,
+            "sender_name": msg.sender.username,
+            "encrypted_content": msg.encrypted_content,
+            "created_at": msg.created_at,
+            "token_hash": msg.token_hash
+        }
+        for msg in flagged_messages
+    ] 
