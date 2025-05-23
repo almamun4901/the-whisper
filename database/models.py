@@ -69,8 +69,10 @@ class AuditLog(Base):
     action_type = Column(String, nullable=False)  # 'freeze', 'ban', 'warn'
     token_hash = Column(String, nullable=False)
     moderator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # The user who received the action
     action_details = Column(Text, nullable=True)  # Additional details like ban duration
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     # Relationships
     moderator = relationship("User", foreign_keys=[moderator_id])
+    user = relationship("User", foreign_keys=[user_id])

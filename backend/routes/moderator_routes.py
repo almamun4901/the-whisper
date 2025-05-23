@@ -39,6 +39,7 @@ def create_audit_log(
     action_type: str,
     token_hash: str,
     moderator_id: int,
+    user_id: int = None,
     action_details: str = None
 ):
     """Create an audit log entry"""
@@ -46,6 +47,7 @@ def create_audit_log(
         action_type=action_type,
         token_hash=token_hash,
         moderator_id=moderator_id,
+        user_id=user_id,
         action_details=action_details
     )
     db.add(audit_log)
@@ -190,6 +192,7 @@ async def ban_user(
         action_type="ban",
         token_hash=token_hash,
         moderator_id=moderator.id,
+        user_id=user.id,
         action_details=f"User banned for {ban_request.duration_hours} hours. All tokens frozen."
     )
     
@@ -209,6 +212,9 @@ async def warn_user(
         message = db.query(Message).filter(Message.token_hash == token_hash).first()
         if not message:
             raise HTTPException(status_code=404, detail="Token not found")
+        user = message.sender
+    else:
+        user = token.user
     
     # Create audit log for warning
     create_audit_log(
@@ -216,6 +222,7 @@ async def warn_user(
         action_type="warn",
         token_hash=token_hash,
         moderator_id=moderator.id,
+        user_id=user.id,
         action_details="Warning issued to user"
     )
     
