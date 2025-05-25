@@ -10,4 +10,5 @@ pydantic-settings==2.8.1
 python-dotenv==1.0.0
 passlib==1.7.4
 bcrypt==4.0.1
-fastapi-cors 
+fastapi-cors
+PyJWT==2.8.0 

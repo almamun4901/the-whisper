@@ -5,10 +5,11 @@ Models:
 - User: Stores core user information for authentication and messaging
 - Message: Stores messages between users with encryption and metadata
 - TokenMapping: Stores pseudonymous token mappings for anonymous messaging
+- MessageToken: Tracks token usage per message
 - Uses SQLAlchemy ORM for database interactions
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database.database import Base
 import datetime
@@ -45,6 +46,7 @@ class Message(Base):
     # Relationships
     sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_messages")
     recipient = relationship("User", foreign_keys=[recipient_id], back_populates="received_messages")
+    message_token = relationship("MessageToken", back_populates="message", uselist=False)
 
 class TokenMapping(Base):
     __tablename__ = "token_mappings"
@@ -58,9 +60,29 @@ class TokenMapping(Base):
     is_used = Column(Boolean, default=False)
     is_frozen = Column(Boolean, default=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    messages_sent = Column(Integer, default=0)  # Track number of messages sent with this token
+    last_used_at = Column(DateTime, nullable=True)  # Track when the token was last used
+    
+    # Add unique constraint to ensure one token per user per round
+    __table_args__ = (
+        UniqueConstraint('user_id', 'round_id', name='uix_user_round_token'),
+    )
     
     # Relationships
     user = relationship("User", back_populates="token_mappings")
+    message_tokens = relationship("MessageToken", back_populates="token_mapping")
+
+class MessageToken(Base):
+    __tablename__ = "message_tokens"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
+    token_mapping_id = Column(Integer, ForeignKey("token_mappings.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Relationships
+    message = relationship("Message", back_populates="message_token")
+    token_mapping = relationship("TokenMapping", back_populates="message_tokens")
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

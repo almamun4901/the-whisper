@@ -18,6 +18,7 @@ from database.models import User, Message, TokenMapping, AuditLog
 from encryption.message_crypto import encrypt_message, decrypt_message
 from auth.jwt_auth import get_current_user
 from encryption.key_management import KeyManager
+from encryption.token_manager import TokenManager
 import datetime
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 class MessageCreate(BaseModel):
     recipient_id: int
     encrypted_content: str
-    token_hash: str  # Add token hash field
+    token_hash: str
 
 class MessageResponse(BaseModel):
     id: int
@@ -42,11 +43,25 @@ class DecryptRequest(BaseModel):
 class FlagMessageRequest(BaseModel):
     reason: str
 
+@router.get("/current-round")
+async def get_current_round(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get the current round ID for token generation"""
+    # Round changes every 2 minutes (120 seconds)
+    current_round = int(datetime.datetime.utcnow().timestamp() / 120)
+    return {"round_id": current_round}
+
 @router.post("/send")
 async def send_message(
     message: MessageCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    token_manager: TokenManager = Depends(lambda: TokenManager(
+        secret_key="your-secret-key",
+        encryption_key="your-encryption-key-string"
+    ))
 ):
     # Verify user is approved and is a sender
     if not current_user.is_approved or current_user.role != "sender":
@@ -63,6 +78,31 @@ async def send_message(
     # Verify recipient is approved
     if not recipient.is_approved:
         raise HTTPException(status_code=400, detail="Recipient is not approved")
+    
+    # Get current round ID (2 minutes)
+    current_round = int(datetime.datetime.utcnow().timestamp() / 120)
+    
+    # Create or get token for this round
+    token_hash, is_new = token_manager.get_or_create_token(current_user.id, current_round)
+    
+    # Verify the provided token matches the one we just created/retrieved
+    if token_hash != message.token_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid token for current round"
+        )
+    
+    # Validate token
+    is_valid, error_message = token_manager.validate_token_for_message(
+        message.token_hash,
+        current_user.id
+    )
+    
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_message
+        )
     
     # Check if the token is currently banned
     current_time = datetime.datetime.utcnow()
@@ -83,12 +123,15 @@ async def send_message(
         encrypted_content=message.encrypted_content,
         sender_id=current_user.id,
         recipient_id=message.recipient_id,
-        token_hash=message.token_hash  # Add token hash to message
+        token_hash=message.token_hash
     )
     
     db.add(db_message)
     db.commit()
     db.refresh(db_message)
+    
+    # Record token usage for this message
+    token_manager.record_message_token(db_message.id, message.token_hash)
     
     return {
         "id": db_message.id,
@@ -226,18 +269,6 @@ async def flag_message(
     db.commit()
     
     return {"status": "message flagged successfully"}
-
-@router.get("/current-round")
-async def get_current_round(
-    current_user: User = Depends(get_current_user)
-):
-    """Get the current round ID based on the current time"""
-    # Each round lasts 24 hours
-    # Round ID is calculated as the number of days since epoch
-    current_time = datetime.datetime.utcnow()
-    epoch = datetime.datetime(1970, 1, 1)
-    days_since_epoch = (current_time - epoch).days
-    return {"round_id": days_since_epoch}
 
 @router.get("/flagged")
 async def get_flagged_messages(

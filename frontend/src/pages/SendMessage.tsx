@@ -16,6 +16,7 @@ const SendMessage = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [currentToken, setCurrentToken] = useState<string | null>(null)
   const navigate = useNavigate()
   const { toast } = useToast()
 
@@ -34,7 +35,6 @@ const SendMessage = () => {
             Authorization: `Bearer ${token}`
           }
         })
-        // Update to save both id and username
         setReceivers(response.data.map((user: any) => ({
           id: user.id,
           username: user.username
@@ -46,6 +46,43 @@ const SendMessage = () => {
 
     fetchReceivers()
   }, [navigate])
+
+  const getOrCreateToken = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        throw new Error('Authentication required')
+      }
+
+      // Get the current round ID from the backend
+      const roundResponse = await axios.get('http://localhost:8000/messages/current-round', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
+      const roundId = roundResponse.data.round_id
+
+      // Get the user ID
+      const userResponse = await axios.get('http://localhost:8000/users/me', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
+      const userId = userResponse.data.id
+
+      // Generate token hash using the same method as backend
+      const token_hash = CryptoJS.SHA256(`${userId}${roundId}`).toString()
+      
+      // Store the token hash for this round
+      localStorage.setItem(`token_${roundId}`, token_hash)
+      setCurrentToken(token_hash)
+      
+      return token_hash
+    } catch (error: any) {
+      console.error('Token generation error:', error)
+      throw new Error(error.response?.data?.detail || 'Failed to get token')
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -61,7 +98,11 @@ const SendMessage = () => {
 
     try {
       const token = localStorage.getItem('token')
-      // Get the current round ID from the backend
+      if (!token) {
+        throw new Error('Authentication required')
+      }
+
+      // Get current round ID
       const roundResponse = await axios.get('http://localhost:8000/messages/current-round', {
         headers: {
           Authorization: `Bearer ${token}`
@@ -69,17 +110,15 @@ const SendMessage = () => {
       })
       const roundId = roundResponse.data.round_id
 
-      // Get the user ID from the token
-      const userResponse = await axios.get('http://localhost:8000/users/me', {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      })
-      const userId = userResponse.data.id
-
-      // Generate token hash using SHA-256
-      const token_hash = CryptoJS.SHA256(`${userId}${roundId}`).toString()
+      // Try to get existing token for this round
+      let token_hash = localStorage.getItem(`token_${roundId}`)
       
+      // If no token exists for this round, create one
+      if (!token_hash) {
+        token_hash = await getOrCreateToken()
+      }
+      
+      // Use the token we have
       await axios.post(
         'http://localhost:8000/messages/send',
         {
@@ -93,10 +132,32 @@ const SendMessage = () => {
           }
         }
       )
+      
       setSuccess('Message sent successfully!')
       setMessage('')
+      
+      // Show toast notification
+      toast({
+        title: "Success",
+        description: "Message sent successfully!",
+      })
     } catch (error: any) {
-      setError(error.response?.data?.detail || 'Failed to send message')
+      const errorMessage = error.response?.data?.detail || 'Failed to send message'
+      setError(errorMessage)
+      
+      // Show error toast
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive"
+      })
+      
+      // If token is invalid or used, clear it for this round
+      if (errorMessage.includes('token')) {
+        const roundId = Math.floor(Date.now() / 120000) // Current round ID (120000 ms = 2 minutes)
+        localStorage.removeItem(`token_${roundId}`)
+        setCurrentToken(null)
+      }
     } finally {
       setLoading(false)
     }
@@ -151,7 +212,9 @@ const SendMessage = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50"
+            className={`w-full py-2 px-4 rounded text-white ${
+              loading ? 'bg-primary/50 cursor-not-allowed' : 'bg-primary hover:bg-primary/90'
+            }`}
           >
             {loading ? 'Sending...' : 'Send Message'}
           </button>
