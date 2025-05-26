@@ -23,7 +23,7 @@ class UserBan(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     banned_token_hash = Column(String, nullable=False)  # The token that caused the ban
     ban_start_time = Column(DateTime, default=datetime.datetime.utcnow)
-    ban_end_time = Column(DateTime, nullable=False)
+    ban_end_time = Column(DateTime, nullable=True)  # Changed to nullable for permanent bans
     ban_reason = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -118,7 +118,7 @@ class AuditLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     action_type = Column(String, nullable=False)  # 'freeze', 'ban', 'warn'
     token_hash = Column(String, nullable=False)
-    moderator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    moderator_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Made nullable
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # The user who received the action
     action_details = Column(Text, nullable=True)  # Additional details like ban duration
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

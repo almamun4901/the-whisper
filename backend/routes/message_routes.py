@@ -226,6 +226,17 @@ async def send_message(
     db.add(db_message)
     db.commit()
     db.refresh(db_message)
+
+    # Add audit log for message sending
+    audit_log = AuditLog(
+        action_type="message_sent",
+        token_hash=message.token_hash,
+        moderator_id=None,
+        user_id=current_user.id,
+        action_details=f"Message sent from user {current_user.id} to {message.recipient_id}"
+    )
+    db.add(audit_log)
+    db.commit()
     
     # Record token usage for this message
     token_manager.record_message_token(db_message.id, message.token_hash)

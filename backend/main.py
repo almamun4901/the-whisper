@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 import hashlib
 from database.database import SessionLocal, engine, Base, get_db
-from database.models import User
+from database.models import User, AuditLog
 from encryption.key_utils import generate_rsa_key_pair
 from auth.jwt_auth import create_access_token, SECRET_KEY, ALGORITHM, authenticate_user, get_current_user
 from jose import jwt, JWTError
@@ -58,7 +58,7 @@ def hash_password(password: str) -> str:
     """Hash password using SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-async def verify_admin_token(authorization: str = Header(None)):
+async def verify_admin_token(authorization: str = Header(None), db: Session = Depends(get_db)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -78,7 +78,15 @@ async def verify_admin_token(authorization: str = Header(None)):
                 detail="Not authorized",
             )
         
-        return {"username": username, "role": role}
+        # Get the admin user from database
+        admin_user = db.query(User).filter(User.username == username).first()
+        if not admin_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin user not found",
+            )
+        
+        return admin_user
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -214,7 +222,7 @@ def admin_login(admin: AdminLogin):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/admin/pending-users")
-async def get_pending_users(db: Session = Depends(get_db), admin = Depends(verify_admin_token)):
+async def get_pending_users(db: Session = Depends(get_db)):
     pending_users = db.query(User).filter(User.status == "pending").all()
     return [
         {
@@ -227,38 +235,51 @@ async def get_pending_users(db: Session = Depends(get_db), admin = Depends(verif
     ]
 
 @app.post("/admin/approve-user/{user_id}")
-async def approve_user(user_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin_token)):
+async def approve_user(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Update both is_approved and status fields
     user.is_approved = True
     user.status = "approved"
     db.commit()
     
-    return {
-        "id": user.id,
-        "username": user.username,
-        "role": user.role,
-        "status": "approved"
-    }
+    # Create audit log for user approval
+    audit_log = AuditLog(
+        action_type="user_approved",
+        token_hash="admin_action",  # Using a placeholder since this is an admin action
+        moderator_id=1,  # Using a default admin ID
+        user_id=user.id,
+        action_details=f"User {user.username} approved by admin"
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    return {"message": "User approved successfully"}
 
 @app.post("/admin/reject-user/{user_id}")
-async def reject_user(user_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin_token)):
+async def reject_user(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    user.is_approved = False
-    user.status = "rejected"
+    # Create audit log for user rejection
+    audit_log = AuditLog(
+        action_type="user_rejected",
+        token_hash="admin_action",  # Using a placeholder since this is an admin action
+        moderator_id=1,  # Using a default admin ID
+        user_id=user.id,
+        action_details=f"User {user.username} rejected by admin"
+    )
+    db.add(audit_log)
     db.commit()
     
-    return {
-        "id": user.id,
-        "username": user.username,
-        "role": user.role,
-        "status": "rejected"
-    }
+    # Delete the user
+    db.delete(user)
+    db.commit()
+    
+    return {"message": "User rejected and deleted successfully"}
 
 @app.get("/status")
 def check_user_status(username: str, db: Session = Depends(get_db)):
@@ -323,4 +344,20 @@ async def debug_token(current_user: User = Depends(get_current_user)):
         "role": current_user.role,
         "is_approved": current_user.is_approved,
         "status": current_user.status
-    } 
+    }
+
+@app.get("/admin/audit-logs")
+async def get_admin_audit_logs(db: Session = Depends(get_db)):
+    logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).all()
+    return [
+        {
+            "id": log.id,
+            "action_type": log.action_type,
+            "token_hash": log.token_hash,
+            "moderator_id": log.moderator_id,
+            "user_id": log.user_id,
+            "action_details": log.action_details,
+            "created_at": log.created_at
+        }
+        for log in logs
+    ] 

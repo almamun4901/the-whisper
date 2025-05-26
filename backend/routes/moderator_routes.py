@@ -316,7 +316,7 @@ async def get_banned_users(
     current_time = datetime.now()
     active_bans = db.query(UserBan).filter(
         UserBan.is_active == True,
-        UserBan.ban_end_time > current_time
+        (UserBan.ban_end_time > current_time) | (UserBan.ban_end_time == None)  # Include permanent bans
     ).all()
     
     return [
@@ -326,7 +326,8 @@ async def get_banned_users(
             "ban_start_time": format_datetime(ban.ban_start_time),
             "ban_end_time": format_datetime(ban.ban_end_time),
             "ban_reason": ban.ban_reason,
-            "banned_token_hash": ban.banned_token_hash
+            "banned_token_hash": ban.banned_token_hash,
+            "is_permanent": ban.ban_end_time is None
         }
         for ban in active_bans
     ]
@@ -468,11 +469,12 @@ async def check_ban_status(
     ).order_by(UserBan.created_at.desc()).all()
     
     # Get active bans
-    active_bans = [ban for ban in all_bans if ban.is_active]
+    active_bans = [ban for ban in all_bans if ban.is_active and 
+                  (ban.ban_end_time is None or ban.ban_end_time > current_time)]
     
     # Check for expired bans that should be deactivated
-    for ban in active_bans:
-        if ban.ban_end_time and ban.ban_end_time <= current_time:
+    for ban in all_bans:
+        if ban.is_active and ban.ban_end_time and ban.ban_end_time <= current_time:
             ban.is_active = False
             db.commit()
     
@@ -482,11 +484,12 @@ async def check_ban_status(
         "all_bans": [
             {
                 "id": ban.id,
-                "ban_type": ban.ban_type,
+                "ban_type": ban.ban_reason.split(":")[0] if ":" in ban.ban_reason else "unknown",
                 "ban_reason": ban.ban_reason,
                 "ban_start_time": format_datetime(ban.ban_start_time),
                 "ban_end_time": format_datetime(ban.ban_end_time),
                 "is_active": ban.is_active,
+                "is_permanent": ban.ban_end_time is None,
                 "time_until_expiry": (ban.ban_end_time - current_time).total_seconds() if ban.ban_end_time else None
             }
             for ban in all_bans
@@ -494,10 +497,11 @@ async def check_ban_status(
         "active_bans": [
             {
                 "id": ban.id,
-                "ban_type": ban.ban_type,
+                "ban_type": ban.ban_reason.split(":")[0] if ":" in ban.ban_reason else "unknown",
                 "ban_reason": ban.ban_reason,
                 "ban_start_time": format_datetime(ban.ban_start_time),
                 "ban_end_time": format_datetime(ban.ban_end_time),
+                "is_permanent": ban.ban_end_time is None,
                 "time_until_expiry": (ban.ban_end_time - current_time).total_seconds() if ban.ban_end_time else None
             }
             for ban in active_bans
