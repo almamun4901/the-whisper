@@ -298,6 +298,12 @@ async def ban_user(
         db.commit()
         db.refresh(user)
         
+        # Mark the message as resolved
+        message = db.query(Message).filter(Message.token_hash == ban_request.token_hash).first()
+        if message:
+            message.is_flagged = False
+            db.commit()
+        
         return {"status": "user banned successfully"}
         
     except Exception as e:
@@ -402,7 +408,7 @@ async def warn_user(
         token_hash=token_hash,
         moderator_id=moderator.id,
         user_id=user.id,
-        details=f"Warning issued: {warning_reason}"
+        action_details=f"Warning issued to user {user.id}: {warning_reason}"
     )
     db.add(audit_log)
     db.commit()
@@ -410,8 +416,7 @@ async def warn_user(
     return {
         "message": "Warning issued successfully",
         "warning_reason": warning_reason,
-        "user_id": user.id,
-        "username": user.username
+        "user_id": user.id
     }
 
 @router.get("/user-warnings/{user_id}")
@@ -434,24 +439,6 @@ async def get_user_warnings(
             "issued_by": log.moderator.username
         }
         for log in warnings
-    ]
-
-@router.get("/audit-logs")
-async def get_audit_logs(
-    db: Session = Depends(get_db),
-    moderator: User = Depends(verify_moderator)
-):
-    """Get audit logs for moderator actions"""
-    logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).all()
-    return [
-        {
-            "id": log.id,
-            "action_type": log.action_type,
-            "token_hash": log.token_hash,
-            "action_details": log.action_details,
-            "created_at": log.created_at
-        }
-        for log in logs
     ]
 
 @router.get("/check-ban-status/{user_id}")
@@ -506,4 +493,20 @@ async def check_ban_status(
             }
             for ban in active_bans
         ]
-    } 
+    }
+
+@router.post("/resolve-message/{message_id}")
+async def resolve_message(
+    message_id: int,
+    db: Session = Depends(get_db),
+    moderator: User = Depends(verify_moderator)
+):
+    """Mark a flagged message as resolved"""
+    message = db.query(Message).filter(Message.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    message.is_resolved = True
+    db.commit()
+    
+    return {"status": "message resolved successfully"} 

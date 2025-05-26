@@ -68,6 +68,7 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     read = Column(Boolean, default=False)
     is_flagged = Column(Boolean, default=False)  # For recipient flagging
+    is_resolved = Column(Boolean, default=False)  # For moderator resolution
     flag_reason = Column(Text, nullable=True)  # Reason for flagging
     token_hash = Column(String, nullable=True)  # Hash of the token used to send the message
     

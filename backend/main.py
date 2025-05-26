@@ -251,7 +251,7 @@ async def approve_user(user_id: int, db: Session = Depends(get_db)):
         token_hash="admin_action",  # Using a placeholder since this is an admin action
         moderator_id=1,  # Using a default admin ID
         user_id=user.id,
-        action_details=f"User {user.username} approved by admin"
+        action_details=f"User {user.id} approved by admin"
     )
     db.add(audit_log)
     db.commit()
@@ -270,7 +270,7 @@ async def reject_user(user_id: int, db: Session = Depends(get_db)):
         token_hash="admin_action",  # Using a placeholder since this is an admin action
         moderator_id=1,  # Using a default admin ID
         user_id=user.id,
-        action_details=f"User {user.username} rejected by admin"
+        action_details=f"User {user.id} rejected by admin"
     )
     db.add(audit_log)
     db.commit()

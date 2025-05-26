@@ -1,67 +1,67 @@
 # WhisperChain+
 
-A secure, role-based anonymous messaging platform that enables users to send encrypted anonymous compliments while maintaining sender privacy and preventing abuse.
+**WhisperChain+** is a secure, role-based anonymous messaging platform that enables users to send encrypted anonymous compliments. The system ensures strong sender privacy while incorporating robust protections to prevent misuse or abuse.
 
-## Project Structure
+---
 
-## File Descriptions
+## 🚀 Features
 
-### Backend
-- `main.py`: FastAPI application setup, middleware configuration, and route registration
-- `routes/*.py`: API endpoint definitions for each feature area
-- `services/*.py`: Business logic implementation for each feature
+- 🔐 **End-to-End Encryption** – Ensures all messages remain confidential between sender and recipient.
+- 👥 **Role-Based Access Control** – Limits access and capabilities based on user roles.
+- 🕵️‍♂️ **Anonymous One-Time Tokens** – Enables message sending without revealing identity.
+- 📜 **Append-Only Audit Logging** – Maintains immutable logs for transparency and security.
+- 🧅 **Anonymity Preservation** – Designed to protect user identities at all levels.
 
-### Models
-- `user.py`: User account data, roles, and cryptographic keys
-- `message.py`: Encrypted message structure and metadata
-- `token.py`: One-time use anonymous token structure
-- `audit_log.py`: System event logging structure
+---
 
-### Encryption
-- `key_utils.py`: RSA/ECC key pair generation and management
-- `crypto_utils.py`: Message encryption/decryption using hybrid encryption
+## 🧪 Tests
 
-### Auth
-- `rbac.py`: Role-based access control definitions and enforcement
-- `session_manager.py`: User session handling and validation
+Test files are provided for each major component of the system to ensure correctness and reliability.
 
-### Logs
-- `audit_logger.py`: Append-only logging with digital signatures
+---
 
-### Database
-- `config.py`: Database connection settings and environment configuration
-- `db_session.py`: SQLAlchemy session management
+## 🛠 Setup Instructions
 
-### Tests
-- Test files for each major component of the system
+### Backend Setup
 
-## Setup Instructions
-
-1. Create a virtual environment:
+1. **Create a virtual environment** (Python 3.10 recommended):
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate  # macOS/Linux
    ```
 
-2. Install dependencies:
+2. **Install Python dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Initialize the database:
-   ```bash
-   python backend/database/init_db.py
-   ```
-
-4. Start the server:
+3. **Start the backend server:**
    ```bash
    python run.py
    ```
 
-## Security Features
+---
 
-- End-to-end encryption for messages
-- Role-based access control
-- One-time use anonymous tokens
-- Append-only audit logging
-- Sender anonymity preservation
+### Frontend Setup
+
+1. **Navigate to the frontend directory:**
+   ```bash
+   cd frontend
+   ```
+
+2. **Install frontend dependencies and start the development server:**
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+---
+
+## ✅ Security Highlights
+
+- **End-to-end encryption** ensures messages are private and secure.
+- **One-time anonymous tokens** allow secure, single-use anonymous interactions.
+- **Role-based access control** restricts actions based on user role.
+- **Append-only logging** protects audit trails from tampering.
+- **Anonymity by design** – No persistent link between senders and messages.
+
