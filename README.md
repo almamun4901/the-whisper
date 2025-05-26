@@ -1,26 +1,26 @@
 # WhisperChain+
 
-**WhisperChain+** is a secure, role-based anonymous messaging platform that enables users to send encrypted anonymous compliments. The system ensures strong sender privacy while incorporating robust protections to prevent misuse or abuse.
+**WhisperChain+** is a secure, role-based anonymous messaging platform that enables users to send encrypted anonymous messages. The system ensures strong user's privacy while incorporating robust protections to prevent misuse or abuse. The sender gets banned.
 
 ---
 
-## 🚀 Features
+## Features
 
-- 🔐 **End-to-End Encryption** – Ensures all messages remain confidential between sender and recipient.
-- 👥 **Role-Based Access Control** – Limits access and capabilities based on user roles.
-- 🕵️‍♂️ **Anonymous One-Time Tokens** – Enables message sending without revealing identity.
-- 📜 **Append-Only Audit Logging** – Maintains immutable logs for transparency and security.
-- 🧅 **Anonymity Preservation** – Designed to protect user identities at all levels.
+- **End-to-End Encryption** – Ensures all messages remain confidential between sender and recipient.
+- **Role-Based Access Control** – Limits access and capabilities based on user roles.
+- **Anonymous One-Time Tokens** – Enables message sending without revealing identity.
+- **Append-Only Audit Logging** – Maintains immutable logs for transparency and security.
+- **Anonymity Preservation** – Designed to protect user identities at all levels.
 
 ---
 
-## 🧪 Tests
+## Tests
 
 Test files are provided for each major component of the system to ensure correctness and reliability.
 
 ---
 
-## 🛠 Setup Instructions
+## Setup Instructions
 
 ### Backend Setup
 
@@ -57,7 +57,7 @@ Test files are provided for each major component of the system to ensure correct
 
 ---
 
-## ✅ Security Highlights
+## Security Highlights
 
 - **End-to-end encryption** ensures messages are private and secure.
 - **One-time anonymous tokens** allow secure, single-use anonymous interactions.
