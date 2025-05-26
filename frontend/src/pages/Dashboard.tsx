@@ -9,6 +9,8 @@ interface TokenStatus {
   banned_until?: string
   warning_date?: string
   frozen_since?: string
+  ban_type?: string
+  ban_reason?: string
 }
 
 const Dashboard = () => {
@@ -36,6 +38,11 @@ const Dashboard = () => {
     // Fetch token status for senders
     if (storedRole === 'sender') {
       fetchTokenStatus()
+      
+      // Check token status every minute to catch ban expirations
+      const interval = setInterval(fetchTokenStatus, 60000)
+      
+      return () => clearInterval(interval)
     }
   }, [navigate])
 
@@ -46,13 +53,31 @@ const Dashboard = () => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
-      setTokenStatus(response.data)
+      
+      const newStatus = response.data
+      
+      // Update token status
+      setTokenStatus(newStatus)
+      
+      // If ban has expired, show a success message
+      if (tokenStatus?.status === 'banned' && newStatus.status === 'active') {
+        toast({
+          title: "Ban Expired",
+          description: "Your ban has expired. You can now send messages again.",
+          duration: 5000
+        })
+      }
+      
+      // If token was frozen and is now active, show a message
+      if (tokenStatus?.status === 'frozen' && newStatus.status === 'active') {
+        toast({
+          title: "Token Unfrozen",
+          description: "Your token is now active. You can send messages again.",
+          duration: 5000
+        })
+      }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to fetch token status",
-        variant: "destructive"
-      })
+      console.error('Failed to fetch token status:', error)
     }
   }
 
@@ -137,22 +162,35 @@ const Dashboard = () => {
                             Status: {tokenStatus.status.toUpperCase()}
                           </span>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          {tokenStatus.message}
-                        </p>
-                        {tokenStatus.banned_until && (
-                          <p className="text-sm text-red-500">
-                            Banned until: {new Date(tokenStatus.banned_until).toLocaleString()}
+                        {tokenStatus.status === 'active' ? (
+                          <p className="text-sm text-green-500">
+                            Your token is active. You can send messages.
                           </p>
-                        )}
-                        {tokenStatus.warning_date && (
-                          <p className="text-sm text-yellow-500">
-                            Warning issued: {new Date(tokenStatus.warning_date).toLocaleString()}
-                          </p>
-                        )}
-                        {tokenStatus.frozen_since && (
-                          <p className="text-sm text-red-500">
-                            Frozen since: {new Date(tokenStatus.frozen_since).toLocaleString()}
+                        ) : tokenStatus.status === 'banned' ? (
+                          <>
+                            <p className="text-sm text-red-500">
+                              Your account has been banned.
+                            </p>
+                            {tokenStatus.banned_until && (
+                              <p className="text-sm text-red-500">
+                                Banned until: {new Date(tokenStatus.banned_until).toLocaleString()}
+                              </p>
+                            )}
+                          </>
+                        ) : tokenStatus.status === 'frozen' ? (
+                          <>
+                            <p className="text-sm text-red-500">
+                              Your token has been frozen by a moderator.
+                            </p>
+                            {tokenStatus.frozen_since && (
+                              <p className="text-sm text-red-500">
+                                Frozen since: {new Date(tokenStatus.frozen_since).toLocaleString()}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            {tokenStatus.message}
                           </p>
                         )}
                       </div>

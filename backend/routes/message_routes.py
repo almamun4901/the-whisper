@@ -14,19 +14,25 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from database.database import get_db
-from database.models import User, Message, TokenMapping, AuditLog
+from database.models import User, Message, TokenMapping, AuditLog, UserBan
 from encryption.message_crypto import encrypt_message, decrypt_message
 from auth.jwt_auth import get_current_user
 from encryption.key_management import KeyManager
 from encryption.token_manager import TokenManager
-import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/messages", tags=["messages"])
+
+def format_datetime(dt: Optional[datetime]) -> str:
+    """Format datetime consistently across the application in 24-hour format"""
+    if dt is None:
+        return "permanently"
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 class MessageCreate(BaseModel):
     recipient_id: int
     encrypted_content: str
-    token_hash: str
+    token_hash: Optional[str] = None  # Make token_hash optional with a default of None
 
 class MessageResponse(BaseModel):
     id: int
@@ -50,7 +56,7 @@ async def get_current_round(
 ):
     """Get the current round ID for token generation"""
     # Round changes every 2 minutes (120 seconds)
-    current_round = int(datetime.datetime.utcnow().timestamp() / 120)
+    current_round = int(datetime.now().timestamp() / 120)
     return {"round_id": current_round}
 
 @router.post("/send")
@@ -67,56 +73,147 @@ async def send_message(
     if not current_user.is_approved or current_user.role != "sender":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to send messages"
+            detail="Only approved senders can send messages"
         )
+
+    # Check for active bans
+    current_time = datetime.now()
+    print(f"Checking bans at current time: {current_time}")
     
-    # Get recipient
-    recipient = db.query(User).filter(User.id == message.recipient_id).first()
-    if not recipient:
-        raise HTTPException(status_code=404, detail="Recipient not found")
-    
-    # Verify recipient is approved
-    if not recipient.is_approved:
-        raise HTTPException(status_code=400, detail="Recipient is not approved")
-    
-    # Get current round ID (2 minutes)
-    current_round = int(datetime.datetime.utcnow().timestamp() / 120)
-    
-    # Create or get token for this round
-    token_hash, is_new = token_manager.get_or_create_token(current_user.id, current_round)
-    
-    # Verify the provided token matches the one we just created/retrieved
-    if token_hash != message.token_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid token for current round"
-        )
-    
-    # Validate token
-    is_valid, error_message = token_manager.validate_token_for_message(
-        message.token_hash,
-        current_user.id
-    )
-    
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_message
-        )
-    
-    # Check if the token is currently banned
-    current_time = datetime.datetime.utcnow()
-    active_ban = db.query(AuditLog).filter(
-        AuditLog.token_hash == message.token_hash,
-        AuditLog.action_type == "ban",
-        AuditLog.created_at >= current_time - datetime.timedelta(minutes=5)  # Check last 5 minutes
+    active_ban = db.query(UserBan).filter(
+        UserBan.user_id == current_user.id,
+        UserBan.is_active == True
     ).first()
     
     if active_ban:
+        print(f"Found ban: end_time={active_ban.ban_end_time}, current_time={current_time}")
+        # Check if ban has expired
+        if active_ban.ban_end_time is not None and active_ban.ban_end_time <= current_time:
+            print(f"Ban has expired, marking as inactive. Ban end time: {active_ban.ban_end_time}")
+            active_ban.is_active = False
+            db.commit()
+            db.refresh(active_ban)  # Refresh to ensure changes are reflected
+        else:
+            print(f"Ban is still active. End time: {active_ban.ban_end_time}")
+            # Ban is still active, format ban time and create user-friendly message
+            ban_end_time = format_datetime(active_ban.ban_end_time)
+            ban_type = active_ban.ban_reason.split(":")[0] if ":" in active_ban.ban_reason else "unknown"
+            ban_reason = active_ban.ban_reason.split(":", 1)[1].strip() if ":" in active_ban.ban_reason else active_ban.ban_reason
+            
+            # Create user-friendly message based on ban type
+            if ban_type == 'freeze':
+                ban_message = "Your account has been permanently banned"
+            elif ban_type == 'temp_5min':
+                ban_message = f"You are temporarily banned for 5 minutes"
+            elif ban_type == 'temp_1hour':
+                ban_message = f"You are temporarily banned for 1 hour"
+            else:
+                ban_message = "You are currently banned"
+            
+            error_message = {
+                "status": "banned",
+                "ban_type": ban_type,
+                "ban_end_time": ban_end_time,
+                "ban_reason": ban_reason,
+                "message": f"{ban_message}. You can send messages again after {ban_end_time}. Reason: {ban_reason}"
+            }
+            
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=error_message
+            )
+    
+    # Check for token bans
+    if message.token_hash:
+        token_ban = db.query(UserBan).filter(
+            UserBan.banned_token_hash == message.token_hash,
+            UserBan.is_active == True
+        ).first()
+        
+        if token_ban:
+            print(f"Found token ban: end_time={token_ban.ban_end_time}, current_time={current_time}")
+            # Check if token ban has expired
+            if token_ban.ban_end_time is not None and token_ban.ban_end_time <= current_time:
+                print(f"Token ban has expired, marking as inactive. Ban end time: {token_ban.ban_end_time}")
+                token_ban.is_active = False
+                db.commit()
+                db.refresh(token_ban)  # Refresh to ensure changes are reflected
+            else:
+                print(f"Token ban is still active. End time: {token_ban.ban_end_time}")
+                # Token ban is still active, format ban time and create user-friendly message
+                ban_end_time = format_datetime(token_ban.ban_end_time)
+                ban_type = token_ban.ban_reason.split(":")[0] if ":" in token_ban.ban_reason else "unknown"
+                ban_reason = token_ban.ban_reason.split(":", 1)[1].strip() if ":" in token_ban.ban_reason else token_ban.ban_reason
+                
+                # Create user-friendly message based on ban type
+                if ban_type == 'freeze':
+                    ban_message = "This token has been permanently banned"
+                elif ban_type == 'temp_5min':
+                    ban_message = f"This token is temporarily banned for 5 minutes"
+                elif ban_type == 'temp_1hour':
+                    ban_message = f"This token is temporarily banned for 1 hour"
+                else:
+                    ban_message = "This token is currently banned"
+                
+                error_message = {
+                    "status": "token_banned",
+                    "ban_type": ban_type,
+                    "ban_end_time": ban_end_time,
+                    "ban_reason": ban_reason,
+                    "message": f"{ban_message}. You can use this token again after {ban_end_time}. Reason: {ban_reason}"
+                }
+                
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message
+                )
+    
+    # Check if token is frozen
+    token = db.query(TokenMapping).filter(
+        TokenMapping.token_hash == message.token_hash,
+        TokenMapping.is_frozen == True
+    ).first()
+    
+    if token:
+        # Get the freeze time in a consistent format
+        freeze_time = format_datetime(token.updated_at)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This token has been banned for 5 minutes and cannot be used to send messages"
+            detail={
+                "status": "token_frozen",
+                "message": f"This token has been frozen by a moderator since {freeze_time}. Please use a different token to send messages."
+            }
         )
+    
+    # Validate token
+    is_valid, error_message = token_manager.validate_token_for_message(message.token_hash, current_user.id)
+    if not is_valid:
+        # If token is invalid, try to create a new one
+        try:
+            # Calculate current round ID (2 minutes)
+            current_round = int(datetime.now().timestamp() / 120)
+            
+            token_hash, is_new = token_manager.get_or_create_token(current_user.id, current_round)
+            message.token_hash = token_hash
+            is_valid, error_message = token_manager.validate_token_for_message(token_hash, current_user.id)
+            if not is_valid:
+                # Create user-friendly error message
+                if "already been used" in error_message:
+                    error_message = "This token has already been used in this round. Please wait for the next round or use a different token."
+                elif "not found" in error_message:
+                    error_message = "Token not found. A new token will be created for you."
+                elif "expired" in error_message:
+                    error_message = "This token has expired. A new token will be created for you."
+                
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"status": "token_invalid", "message": error_message}
+                )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"status": "token_error", "message": str(e)}
+            )
     
     # Create message
     db_message = Message(
@@ -135,7 +232,8 @@ async def send_message(
     
     return {
         "id": db_message.id,
-        "created_at": db_message.created_at
+        "created_at": db_message.created_at,
+        "token_hash": message.token_hash  # Return the token hash so frontend can store it
     }
 
 @router.get("/inbox", response_model=List[MessageResponse])
@@ -295,4 +393,48 @@ async def get_flagged_messages(
             "token_hash": msg.token_hash
         }
         for msg in flagged_messages
-    ] 
+    ]
+
+@router.get("/token-status/{token_hash}")
+async def get_token_status(
+    token_hash: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get the current status of a token"""
+    current_time = datetime.now()
+    
+    # Check for token bans
+    token_ban = db.query(UserBan).filter(
+        UserBan.banned_token_hash == token_hash,
+        UserBan.is_active == True
+    ).first()
+    
+    if token_ban:
+        # Check if ban has expired
+        if token_ban.ban_end_time is not None and token_ban.ban_end_time <= current_time:
+            # Ban has expired, mark as inactive
+            token_ban.is_active = False
+            db.commit()
+            return {"status": "active"}
+        else:
+            # Ban is still active
+            return {
+                "status": "banned",
+                "message": f"Token banned until {format_datetime(token_ban.ban_end_time)}. Reason: {token_ban.ban_reason}"
+            }
+    
+    # Check if token is frozen
+    token = db.query(TokenMapping).filter(
+        TokenMapping.token_hash == token_hash,
+        TokenMapping.is_frozen == True
+    ).first()
+    
+    if token:
+        return {
+            "status": "frozen",
+            "message": f"Token frozen since {format_datetime(token.updated_at)}"
+        }
+    
+    # Token is active
+    return {"status": "active"} 

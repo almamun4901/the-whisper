@@ -11,8 +11,25 @@ Models:
 
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from database.database import Base
 import datetime
+from typing import Optional
+
+class UserBan(Base):
+    __tablename__ = "user_bans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    banned_token_hash = Column(String, nullable=False)  # The token that caused the ban
+    ban_start_time = Column(DateTime, default=datetime.datetime.utcnow)
+    ban_end_time = Column(DateTime, nullable=False)
+    ban_reason = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="bans")
 
 class User(Base):
     __tablename__ = "users"
@@ -24,11 +41,22 @@ class User(Base):
     is_approved = Column(Boolean, default=False)
     status = Column(String, default="pending")  # "pending", "approved", or "rejected"
     banned_until = Column(DateTime, nullable=True)  # For temporary bans
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     sent_messages = relationship("Message", foreign_keys="Message.sender_id", back_populates="sender")
     received_messages = relationship("Message", foreign_keys="Message.recipient_id", back_populates="recipient")
-    token_mappings = relationship("TokenMapping", back_populates="user")
+    tokens = relationship("TokenMapping", back_populates="user")
+    bans = relationship("UserBan", back_populates="user")
+
+    def is_banned(self) -> bool:
+        """Check if user has any active bans"""
+        return any(ban.is_active for ban in self.bans)
+    
+    def get_active_ban(self) -> Optional["UserBan"]:
+        """Get the user's active ban if any"""
+        return next((ban for ban in self.bans if ban.is_active), None)
 
 class Message(Base):
     __tablename__ = "messages"
@@ -55,8 +83,8 @@ class TokenMapping(Base):
     token_hash = Column(String, unique=True, index=True, nullable=False)
     encrypted_user_id = Column(String, nullable=False)  # AES-encrypted user.id
     round_id = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True))
     is_used = Column(Boolean, default=False)
     is_frozen = Column(Boolean, default=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -69,7 +97,7 @@ class TokenMapping(Base):
     )
     
     # Relationships
-    user = relationship("User", back_populates="token_mappings")
+    user = relationship("User", back_populates="tokens")
     message_tokens = relationship("MessageToken", back_populates="token_mapping")
 
 class MessageToken(Base):

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Form, Button, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { keyManager } from '../services/keyManager';
+import { toast } from 'react-hot-toast';
 
 interface UserRegistration {
     username: string;
@@ -104,16 +105,35 @@ const Registration: React.FC = () => {
             const data = JSON.parse(responseText);
             console.log('Registration success:', data);
             
-            // Store the encrypted private key
-            keyManager.storeEncryptedKey(data.encrypted_private_key);
+            // Store the private key
+            if (data.private_key) {
+                localStorage.setItem('private_key', data.private_key);
+            }
             
             // Store the token
-            localStorage.setItem('token', data.access_token);
+            if (data.access_token) {
+                localStorage.setItem('token', data.access_token);
+            }
             
+            // Show success message with approval status
+            toast({
+                title: "Registration Successful",
+                description: "Your account has been created and is pending approval. You will be able to send messages once an admin approves your account.",
+                duration: 5000,
+            });
+            
+            // Navigate to status page
             navigate('/status');
-        } catch (err) {
-            console.error('Registration error:', err);
-            setError(err instanceof Error ? err.message : 'Registration failed');
+        } catch (error: any) {
+            console.error('Registration error:', error);
+            setError(error.message || 'Registration failed');
+            
+            // Show error toast
+            toast({
+                title: "Registration Failed",
+                description: error.message || 'Registration failed',
+                variant: "destructive",
+            });
         }
     };
 

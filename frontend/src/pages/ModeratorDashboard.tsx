@@ -5,9 +5,9 @@ import { useNavigate } from 'react-router-dom'
 
 interface FlaggedMessage {
   id: number
+  sender_name: string
   encrypted_content: string
   created_at: string
-  flag_reason: string
   token_hash: string
 }
 
@@ -24,6 +24,12 @@ interface AuditLog {
   token_hash: string
   action_details: string
   created_at: string
+}
+
+interface BanRequest {
+  token_hash: string
+  ban_type: 'freeze' | 'temp_5min' | 'temp_1hour' | 'warning'
+  ban_reason: string
 }
 
 const ModeratorDashboard = () => {
@@ -132,25 +138,41 @@ const ModeratorDashboard = () => {
     }
   }
 
-  const handleIssueBan = async (tokenHash: string, durationHours: number) => {
+  const handleBanUser = async (tokenHash: string, banType: BanRequest['ban_type']) => {
     try {
-      await axios.post(`http://localhost:8000/moderator/ban/${tokenHash}`, {
-        duration_hours: durationHours
-      }, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+      const banReason = {
+        'freeze': 'Permanent ban for violating community guidelines',
+        'temp_5min': 'Temporary 5-minute ban for minor violation',
+        'temp_1hour': 'Temporary 1-hour ban for repeated violation',
+        'warning': 'Warning issued for inappropriate content'
+      }[banType]
+
+      const response = await axios.post(
+        'http://localhost:8000/moderator/ban-user',
+        {
+          token_hash: tokenHash,
+          ban_type: banType,
+          ban_reason: banReason
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
         }
-      })
+      )
+
+      // Refresh data
+      fetchFlaggedMessages()
+      fetchAuditLogs()
+      
       toast({
         title: "Success",
-        description: `User banned for ${durationHours} hours`
+        description: banType === 'warning' ? "Warning issued successfully" : "User banned successfully",
       })
-      fetchTokenStatus(tokenHash)
-      fetchAuditLogs() // Refresh audit logs
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.response?.data?.detail || "Failed to issue ban",
+        description: error.response?.data?.detail || "Failed to ban user",
         variant: "destructive"
       })
     }
@@ -250,12 +272,32 @@ const ModeratorDashboard = () => {
                             Flagged at: {new Date(message.created_at).toLocaleString()}
                           </p>
                         </div>
-                        <button
-                          onClick={() => setSelectedToken(message.token_hash)}
-                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-                        >
-                          View Token
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => handleBanUser(message.token_hash, 'freeze')}
+                            className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
+                          >
+                            Ban
+                          </button>
+                          <button
+                            onClick={() => handleBanUser(message.token_hash, 'temp_5min')}
+                            className="px-3 py-1 text-sm bg-orange-500 text-white rounded hover:bg-orange-600"
+                          >
+                            5min Ban
+                          </button>
+                          <button
+                            onClick={() => handleBanUser(message.token_hash, 'temp_1hour')}
+                            className="px-3 py-1 text-sm bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                          >
+                            1hr Ban
+                          </button>
+                          <button
+                            onClick={() => handleBanUser(message.token_hash, 'warning')}
+                            className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+                          >
+                            Warning
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))
@@ -314,24 +356,6 @@ const ModeratorDashboard = () => {
                           disabled={tokenStatus?.is_frozen}
                         >
                           Freeze Token
-                        </button>
-                        <button
-                          onClick={() => handleIssueBan(selectedToken, 1/12)}
-                          className="w-full px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                        >
-                          Ban for 5 Minutes
-                        </button>
-                        <button
-                          onClick={() => handleIssueBan(selectedToken, 24)}
-                          className="w-full px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                        >
-                          Ban for 24 Hours
-                        </button>
-                        <button
-                          onClick={() => handleIssueBan(selectedToken, 168)}
-                          className="w-full px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                        >
-                          Ban for 7 Days
                         </button>
                         <button
                           onClick={() => handleIssueWarning(selectedToken)}

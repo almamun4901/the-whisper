@@ -90,6 +90,15 @@ class TokenManager:
         """
         db = SessionLocal()
         try:
+            # Check if user is banned
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise ValueError("User not found")
+            
+            if user.is_banned():
+                active_ban = user.get_active_ban()
+                raise ValueError(f"User is banned until {active_ban.ban_end_time}. Reason: {active_ban.ban_reason}")
+            
             # Try to get existing token for this user and round
             token = db.query(TokenMapping).filter(
                 TokenMapping.user_id == user_id,
@@ -135,6 +144,15 @@ class TokenManager:
         """
         db = SessionLocal()
         try:
+            # Check if user is banned
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return False, "User not found"
+            
+            if user.is_banned():
+                active_ban = user.get_active_ban()
+                return False, f"User is banned until {active_ban.ban_end_time}. Reason: {active_ban.ban_reason}"
+            
             token = db.query(TokenMapping).filter(
                 TokenMapping.token_hash == token_hash,
                 TokenMapping.user_id == user_id,
@@ -227,5 +245,24 @@ class TokenManager:
                 "is_frozen": token.is_frozen,
                 "is_used": token.is_used
             }
+        finally:
+            db.close()
+    
+    def freeze_user_tokens(self, user_id: int) -> bool:
+        """Freeze all active tokens for a user"""
+        db = SessionLocal()
+        try:
+            # Freeze all active tokens for the user
+            tokens = db.query(TokenMapping).filter(
+                TokenMapping.user_id == user_id,
+                TokenMapping.is_frozen == False,
+                TokenMapping.expires_at > datetime.datetime.utcnow()
+            ).all()
+            
+            for token in tokens:
+                token.is_frozen = True
+            
+            db.commit()
+            return True
         finally:
             db.close() 
